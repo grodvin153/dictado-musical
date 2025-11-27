@@ -1,42 +1,61 @@
 //------------------------------------------------------------
-// NORMALIZACIÓN DE NOTAS (latina → inglesa estándar)
+// AUDIO CONTEXT (uno solo para toda la app)
 //------------------------------------------------------------
-function normalizarNota(nota) {
-    let n = nota.trim().toUpperCase();
 
-    // Si no tiene número, asumimos octava 4
-    if (!/\d$/.test(n)) n += "4";
+let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let bancos = {};  // buffers precargados
 
-    // Detectar alteración
-    let alter = "";
-    if (n.includes("#")) {
-        alter = "#";
-        n = n.replace("#", "");
-    }
-
-    // Base + número
-    const oct = n.slice(-1);
-    let base = n.slice(0, -1);
-
-    // Conversión latina
-    const LAT = {
-        "DO": "C",
-        "RE": "D",
-        "MI": "E",
-        "FA": "F",
-        "SOL": "G",
-        "LA": "A",
-        "SI": "B"
-    };
-
-    if (LAT[base]) base = LAT[base];
-    if (base === "SO") base = "G";
-
-    return base + alter + oct; // Ej: F#4
+//------------------------------------------------------------
+// UTILIDAD: Esperar (para secuenciar notas sin solaparse)
+//------------------------------------------------------------
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 //------------------------------------------------------------
-// NORMALIZACIÓN A NOMBRE DE ARCHIVO (C#4 → Cs4)
+// NORMALIZAR NOTA (latina / inglesa → inglesa estándar)
+//------------------------------------------------------------
+function normalizarNota(nota) {
+    nota = nota.toString().trim().toLowerCase();
+
+    // corregir sostenidos
+    nota = nota.replace("♯", "#");
+
+    // reconocer octava si no hay
+    if (!/[0-9]/.test(nota[nnota.length - 1])) {
+        // por defecto octava 4
+        nota = nota + "4";
+    }
+
+    const baseMap = {
+        "do": "C",
+        "re": "D",
+        "mi": "E",
+        "fa": "F",
+        "sol": "G",
+        "la": "A",
+        "si": "B"
+    };
+
+    // separar base + accidental + número
+    const match = nota.match(/^([a-z]+)([#b]?)([0-9])$/i);
+    if (!match) return null;
+
+    let [_, base, alt, oct] = match;
+
+    // base latina
+    if (baseMap[base]) base = baseMap[base].toUpperCase();
+    else base = base.toUpperCase();
+
+    // accidental
+    if (alt === "b") alt = "b";
+    if (alt === "#") alt = "#";
+
+    return base + alt + oct;
+}
+
+//------------------------------------------------------------
+// NORMALIZAR ARCHIVO (C#4 → Cs4.mp3)
 //------------------------------------------------------------
 function normalizarArchivo(nota) {
     const n = normalizarNota(nota);
@@ -49,34 +68,68 @@ function normalizarArchivo(nota) {
 }
 
 //------------------------------------------------------------
-// CARGA DE SONIDO
+// PRECARGAR UNA NOTA
 //------------------------------------------------------------
-async function cargarNota(nota) {
-    const archivo = normalizarArchivo(nota);
-    const url = `sounds/${archivo}.mp3`;
+async function loadNote(nota) {
+    const fileBase = normalizarArchivo(nota);   // ej: F#4 → Fs4
+    const url = `sounds/${fileBase}.mp3`;
 
-    try {
-        const audio = new Audio(url);
-        await audio.play();
-    } catch (e) {
-        console.error("ERROR cargando:", archivo, e);
+    if (bancos[nota]) return bancos[nota];
+
+    const resp = await fetch(url);
+    const arrayBuffer = await resp.arrayBuffer();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+    bancos[nota] = audioBuffer;
+    return audioBuffer;
+}
+
+//------------------------------------------------------------
+// PRECARGAR TODAS LAS NOTAS USADAS EN LA APP
+//------------------------------------------------------------
+async function precargarTodas() {
+    let todas = [
+        "si3","do4","re4","mi4","fa4","sol4","la4","si4","do5","re5"
+    ];
+
+    for (let n of todas) {
+        await loadNote(n);
+    }
+
+    console.log("✔ Todas las notas precargadas");
+}
+
+//------------------------------------------------------------
+// REPRODUCIR UNA NOTA (sin solaparse)
+//------------------------------------------------------------
+async function playNote(nota) {
+    const buf = await loadNote(nota);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+    src.start(0);
+}
+
+//------------------------------------------------------------
+// REPRODUCIR UNA SECUENCIA DE 4 NOTAS (Android-friendly)
+//------------------------------------------------------------
+async function playSequence(notas, duracion) {
+    for (let n of notas) {
+        await playNote(n);
+        await sleep(duracion * 1000);  // pausa exacta entre notas
     }
 }
 
 //------------------------------------------------------------
-// REPRODUCIR SECUENCIA
+// INTERFAZ / LÓGICA DEL EXAMEN
 //------------------------------------------------------------
-async function reproducirSecuencia(lista, duracion) {
-    for (const n of lista) {
-        await cargarNota(n);
-        await new Promise(r => setTimeout(r, duracion * 1000));
-    }
-}
 
-//------------------------------------------------------------
-// LISTA DE PREGUNTAS (tu lista original)
-//------------------------------------------------------------
-const PREGUNTAS = [
+let preguntaActual = 1;
+let total = 15;
+let respuesta = [];
+let puntuacion = 0;
+
+let preguntas = [
     "do re mi fa",
     "fa sol la si",
     "re do si sol",
@@ -91,126 +144,109 @@ const PREGUNTAS = [
     "fa mi fa la",
     "re5 si sol re5",
     "sol la si re5",
-    "do mi re si3",
-    "fa la sol re5",
-    "si3 sol fa re",
-    "sol la sol re5",
-    "do mi re mi",
-    "la la do5 la",
-    "re5 si sol fa",
-    "re fa la re5",
-    "mi do re mi",
-    "sol fa mi re",
-    "mi re do mi",
-    "sol la sol fa#",
-    "do re mi sol",
-    "sol fa# sol la",
-    "mi do mi sol",
-    "sol la si re5",
-    "mi sol mi do",
-    "do5 sol fa mi",
-    "sol la sol fa",
-    "si la sol fa",
-    "sol do5 si la",
-    "re fa mi re",
-    "sol mi fa fa#",
-    "re mi fa mi",
-    "do si3 do re",
-    "re mi fa sol",
-    "do re mi fa",
-    "re5 do5 si la",
-    "re5 do4 si do5",
-    "mi sol fa# fa",
-    "la do5 si la",
-    "mi fa sol la",
-    "fa mi re mi",
-    "re mi fa la",
-    "sol la si re5",
+    "do mi re si3"
 ];
 
-//------------------------------------------------------------
-// ESTADO Y GUI
-//------------------------------------------------------------
-let preguntaActual = [];
-let respuestaUsuario = [];
-let numeroPregunta = 1;
-let duracionNota = 0.5;
+// elementos UI
+const btnEscuchar = document.getElementById("escuchar");
+const btnValidar = document.getElementById("validar");
+const btnBorrar = document.getElementById("borrar");
+const panelNotas = document.getElementById("panelNotas");
+const outResp = document.getElementById("respuesta");
+const outPreg = document.getElementById("preguntaNum");
+const outPunt = document.getElementById("puntuacion");
+const sliderVel = document.getElementById("velocidad");
+const chkSos = document.getElementById("sostenido");
 
-function elegirNuevaPregunta() {
-    const linea = PREGUNTAS[Math.floor(Math.random() * PREGUNTAS.length)];
-    preguntaActual = linea.split(" ");
-}
-
-document.getElementById("velocidad").addEventListener("input", e => {
-    duracionNota = parseFloat(e.target.value);
-    document.getElementById("velLabel").innerText = duracionNota.toFixed(2);
-});
-
-document.getElementById("btnEscuchar").addEventListener("click", async () => {
-
-    // Nota de referencia DO4
-    await cargarNota("do4");
-    await new Promise(r => setTimeout(r, 800));
-
-    await reproducirSecuencia(preguntaActual, duracionNota);
-});
-
-document.querySelectorAll(".btnNota").forEach(boton => {
-    boton.addEventListener("click", () => {
-        let nota = boton.dataset.nota;
-
-        if (document.getElementById("chkSostenido").checked) {
-            nota += "#";
-            document.getElementById("chkSostenido").checked = false;
-        }
-
-        if (respuestaUsuario.length < 4) {
-            respuestaUsuario.push(nota);
-            actualizarRespuesta();
-        }
-    });
-});
-
-function actualizarRespuesta() {
-    document.getElementById("respuesta").innerText =
-        "[" + respuestaUsuario.join(", ") + "]";
-}
-
-document.getElementById("btnBorrar").addEventListener("click", () => {
-    respuestaUsuario = [];
-    actualizarRespuesta();
-});
+// nota actual
+let notasPregunta = [];
 
 //------------------------------------------------------------
-// VALIDAR RESPUESTA
+// NUEVA PREGUNTA
 //------------------------------------------------------------
-document.getElementById("btnValidar").addEventListener("click", () => {
-    if (respuestaUsuario.length < 4) {
-        alert("Debes elegir 4 notas.");
+function nuevaPregunta() {
+    if (preguntaActual > total) {
+        alert("Examen terminado. Puntuación: " + puntuacion);
         return;
     }
 
-    const correctas = preguntaActual.map(normalizarNota);
-    const usuario = respuestaUsuario.map(normalizarNota);
+    const linea = preguntas[Math.floor(Math.random() * preguntas.length)];
+    notasPregunta = linea.split(" ");
 
-    if (JSON.stringify(correctas) === JSON.stringify(usuario)) {
-        alert("✔ ¡Correcto!");
-    } else {
-        alert(
-            "❌ Incorrecto.\n" +
-            "Correcta: " + preguntaActual.join(" ") + "\n" +
-            "Tu respuesta: " + respuestaUsuario.join(" ")
-        );
-    }
+    respuesta = [];
+    outResp.textContent = "[ ]";
+    outPreg.textContent = `Pregunta ${preguntaActual} de ${total}`;
+}
 
-    respuestaUsuario = [];
-    actualizarRespuesta();
-    numeroPregunta++;
-    elegirNuevaPregunta();
-    document.getElementById("numPreg").innerText = numeroPregunta;
+//------------------------------------------------------------
+// REPRODUCIR PREGUNTA COMPLETA
+//------------------------------------------------------------
+btnEscuchar.addEventListener("click", async () => {
+    const dur = parseFloat(sliderVel.value);
+
+    // DO4 como referencia
+    await playNote("do4");
+    await sleep(600);
+
+    await playSequence(notasPregunta, dur);
 });
 
 //------------------------------------------------------------
-// INICIALIZAR
+// BOTONES DE NOTAS
 //------------------------------------------------------------
-elegirNuevaPregunta();
+panelNotas.addEventListener("click", e => {
+    if (!e.target.classList.contains("nota")) return;
+
+    let nota = e.target.dataset.nota;
+
+    if (chkSos.checked) {
+        nota += "#";
+        chkSos.checked = false;
+    }
+
+    if (respuesta.length < 4) {
+        respuesta.push(nota);
+        outResp.textContent = "[" + respuesta.join(", ") + "]";
+    }
+});
+
+//------------------------------------------------------------
+// BORRAR
+//------------------------------------------------------------
+btnBorrar.addEventListener("click", () => {
+    respuesta = [];
+    outResp.textContent = "[ ]";
+});
+
+//------------------------------------------------------------
+// VALIDAR
+//------------------------------------------------------------
+btnValidar.addEventListener("click", () => {
+    if (respuesta.length !== 4) {
+        alert("Debes seleccionar 4 notas.");
+        return;
+    }
+
+    let corr = notasPregunta.map(n => normalizarNota(n));
+    let usr = respuesta.map(n => normalizarNota(n));
+
+    if (corr.join() === usr.join()) {
+        puntuacion += 250;
+        alert("✔ Correcto");
+    } else {
+        alert("❌ Incorrecto\nCorrecta: " + notasPregunta.join(" "));
+    }
+
+    outPunt.textContent = "Puntuación: " + puntuacion;
+
+    preguntaActual++;
+    nuevaPregunta();
+});
+
+//------------------------------------------------------------
+// INICIO
+//------------------------------------------------------------
+(async () => {
+    await precargarTodas(); // PRECARGA = SOLUCIÓN ANDROID
+    nuevaPregunta();
+})();
