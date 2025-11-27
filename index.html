@@ -6,51 +6,74 @@
     <title>Dictado Musical</title>
 
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="styles.css">
+    <meta name="theme-color" content="#4a6cff">
 
-    <meta name="theme-color" content="#ffffff">
+    <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
 
-    <div class="container">
+    <div class="contenedor">
 
         <h1>🎵 Dictado Musical</h1>
 
-        <div id="info-pregunta" class="pregunta-info">Pregunta 1 de 15</div>
+        <h2 id="preguntaNum">Pregunta 1 de 15</h2>
 
-        <button id="btn-escuchar" class="boton-grande">🎧 Escuchar</button>
+        <!-- Botón escuchar -->
+        <button id="escuchar" class="btn-escuchar">🎧 Escuchar</button>
 
-        <div class="bpm-container">
-            <label>Duración por nota: <span id="durLabel">0.50 s</span></label>
-            <input type="range" id="durSlider" min="0.20" max="0.80" step="0.01">
+        <!-- Slider velocidad -->
+        <div class="bloque">
+            <label for="velocidad">
+                Duración por nota: <span id="velLabel">0.50 s</span>
+            </label>
+            <input id="velocidad" type="range" min="0.20" max="1.00" step="0.05" value="0.50">
         </div>
 
-        <label class="sostenido">
-            <input type="checkbox" id="chkSostenido">
-            ♯ Sostenido
-        </label>
+        <!-- Sostenido -->
+        <div class="bloque">
+            <label>
+                <input type="checkbox" id="sostenido"> ♯ Sostenido
+            </label>
+        </div>
 
-        <h3>Pulsa las 4 notas (grave → agudo):</h3>
+        <!-- Botones de notas -->
+        <h3>Pulsa las 4 notas (grave → agudo)</h3>
 
-        <div class="notas-list" id="notas-lista"></div>
+        <div id="panelNotas" class="panel">
 
-        <div id="respuesta" class="respuesta">Respuesta: []</div>
+            <!-- De graves a agudas (coinciden con tu script.js) -->
+            <button class="nota" data-nota="si3">SI3</button>
+            <button class="nota" data-nota="do4">DO4</button>
+            <button class="nota" data-nota="re4">RE4</button>
+            <button class="nota" data-nota="mi4">MI4</button>
+            <button class="nota" data-nota="fa4">FA4</button>
+            <button class="nota" data-nota="sol4">SOL4</button>
+            <button class="nota" data-nota="la4">LA4</button>
+            <button class="nota" data-nota="si4">SI4</button>
+            <button class="nota" data-nota="do5">DO5</button>
+            <button class="nota" data-nota="re5">RE5</button>
 
-        <button id="btn-borrar" class="boton-pequeno">🗑 Borrar</button>
-        <button id="btn-validar" class="boton-grande verde">✔ Validar</button>
+        </div>
 
+        <!-- Respuesta -->
+        <div class="bloque">
+            <h3>Respuesta:</h3>
+            <div id="respuesta">[ ]</div>
+        </div>
+
+        <!-- Borrar -->
+        <button id="borrar" class="btn-borrar">🗑 Borrar</button>
+
+        <!-- Validar -->
+        <button id="validar" class="btn-validar">✔ Validar</button>
+
+        <!-- Puntuación -->
         <div id="puntuacion" class="puntuacion">Puntuación: 0</div>
     </div>
 
-    <!-- Popup -->
-    <div id="popup" class="popup oculto">
-        <div class="popup-content">
-            <p id="popup-texto"></p>
-            <button id="popup-escuchar" class="boton-grande">🎧 Escuchar otra vez</button>
-            <button id="popup-siguiente" class="boton-pequeno verde">Siguiente</button>
-        </div>
-    </div>
+    <!-- Tu script -->
+    <script src="script.js" type="module"></script>
 
-    <script src="script.js"></script>
 </body>
 </html>
