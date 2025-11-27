@@ -1,44 +1,114 @@
-// -------------------------------------------------
-// CONFIGURACIÓN GENERAL
-// -------------------------------------------------
+// ─────────────────────────────────────────────
+// CONFIGURACIÓN AUDIO
+// ─────────────────────────────────────────────
 
-const TOTAL_PREGUNTAS = 15;
-let notaDuration = 0.50;      // duración por nota (segundos), por defecto 0.5
-const MIN_DURATION = 0.20;
-const MAX_DURATION = 0.80;
+let audioCtx = null;
+const noteBuffers = {};   // "C4" → AudioBuffer
+let notasCargadas = false;
 
-// Estado del examen
-let preguntaNumero = 0;
-let preguntaActual = [];      // tokens latinos originales, ej: ["do","re","mi","fa"]
-let respuestaUsuario = [];    // tokens latinos que pulsa el alumno
-let puntuacion = 0;
-let examTerminado = false;
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+    }
+    return audioCtx;
+}
 
-// WebAudio
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let buffers = {};             // { "C4": AudioBuffer, "D4": AudioBuffer, ... }
+async function loadNote(name) {
+    // name = "C4", "D4", "F#4", etc. → usa MP3
+    const response = await fetch(`sounds/${name}.mp3`);
+    if (!response.ok) {
+        console.error("No se pudo cargar", name, response.status);
+        return;
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
+    noteBuffers[name] = audioBuffer;
+}
 
-const CONVERSION_LATINA_INGLES = {
+async function loadAllNotes(listaNotas) {
+    const ctx = getAudioContext();
+    for (const n of listaNotas) {
+        if (!noteBuffers[n]) {
+            await loadNote(n);
+        }
+    }
+    notasCargadas = true;
+}
+
+function playNote(name, duracion = 0.5, volumen = 0.8) {
+    if (!notasCargadas) return;
+    const ctx = getAudioContext();
+    const buffer = noteBuffers[name];
+    if (!buffer) {
+        console.warn("No hay buffer para", name);
+        return;
+    }
+    const source = ctx.createBufferSource();
+    const gainNode = ctx.createGain();
+    source.buffer = buffer;
+    gainNode.gain.value = volumen;
+
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+    source.start(now);
+    source.stop(now + duracion);
+}
+
+// ─────────────────────────────────────────────
+// NOTACIÓN: LATINA → INGLESA (para fichero)
+// ─────────────────────────────────────────────
+
+const CONVERSION_LATINA = {
     "DO": "C",
     "RE": "D",
     "MI": "E",
     "FA": "F",
     "SOL": "G",
     "LA": "A",
-    "SI": "B"
+    "SI": "B",
 };
 
-const CONVERSION_INGLES_LATINO = {
-    "C": "Do",
-    "D": "Re",
-    "E": "Mi",
-    "F": "Fa",
-    "G": "Sol",
-    "A": "La",
-    "B": "Si"
-};
+function normalizarNota(nota) {
+    // Acepta "do", "do4", "fa#4", "C4", etc. → devuelve "C4", "F#4", etc.
+    let n = nota.trim().toUpperCase();
 
-// Preguntas (las mismas que en Python, notación latina)
+    // Si no trae número, asumir octava 4
+    if (!/\d$/.test(n)) {
+        n = n + "4";
+    }
+
+    // Extraer alteración
+    let alteracion = "";
+    if (n.includes("#")) {
+        alteracion = "#";
+        n = n.replace("#", "");
+    }
+
+    const octava = n.slice(-1);
+    const base = n.slice(0, -1); // DO, RE, C, D, SOL…
+
+    // Notación inglesa directa
+    if (["C", "D", "E", "F", "G", "A", "B"].includes(base)) {
+        return base + alteracion + octava;
+    }
+
+    // Notación latina
+    if (CONVERSION_LATINA[base]) {
+        return CONVERSION_LATINA[base] + alteracion + octava;
+    }
+
+    return null;
+}
+
+// ─────────────────────────────────────────────
+// PREGUNTAS DEL DICTADO
+// ─────────────────────────────────────────────
+
 const PREGUNTAS = [
     "do re mi fa",
     "fa sol la si",
@@ -88,299 +158,228 @@ const PREGUNTAS = [
     "mi fa sol la",
     "fa mi re mi",
     "re mi fa la",
-    "sol la si re5"
+    "sol la si re5",
 ];
 
-// Notas con audio necesario (inglés con octava) para este dictado
-// Rango si3–re5 + sostenidos usados (F#4)
-const NOTES_TO_LOAD = [
-    "B3", "C4", "C#4", "D4", "D#4", "E4", "F4", "F#4", "G4", "G#4", "A4", "A#4", "B4",
-    "C5", "C#5", "D5"
-];
+// ─────────────────────────────────────────────
+// UTILIDAD: extraer lista de notas a cargar
+// ─────────────────────────────────────────────
 
-// Botones de notas (texto que se ve y token interno que guardamos)
-const NOTAS_VALIDAS = [
-    "si3", "do4", "re4", "mi4", "fa4",
-    "sol4", "la4", "si4", "do5", "re5"
-];
-
-// -------------------------------------------------
-// NORMALIZACIÓN DE NOTAS
-// -------------------------------------------------
-
-function normalizarNota(token) {
-    // token tipo: "do", "do4", "fa#", "fa#4", "si3", "do5", etc.
-    let n = token.trim().toUpperCase();
-
-    // Si no hay dígito, asumimos octava 4
-    if (!/\d/.test(n)) {
-        n += "4";
+function obtenerNotasUnicas(preguntas) {
+    const set = new Set();
+    for (const linea of preguntas) {
+        const partes = linea.trim().split(/\s+/);
+        for (const p of partes) {
+            const norm = normalizarNota(p);
+            if (norm) set.add(norm);
+        }
     }
-
-    // Separar octava (último dígito)
-    const octMatch = n.match(/(\d)$/);
-    if (!octMatch) {
-        throw new Error("Formato incorrecto de nota: " + token);
-    }
-    const octava = octMatch[1];
-    let base = n.slice(0, -1); // resto sin la octava
-
-    // Detectar sostenido si está al final (FA#) o antes del dígito (FA#4)
-    let alter = "";
-    if (base.endsWith("#")) {
-        alter = "#";
-        base = base.slice(0, -1);
-    }
-
-    // Base puede ser en inglés (C,D,E,...) o latina (DO,RE,...)
-    if (["C","D","E","F","G","A","B"].includes(base)) {
-        return base + alter + octava;
-    }
-
-    if (CONVERSION_LATINA_INGLES[base]) {
-        const baseEng = CONVERSION_LATINA_INGLES[base];
-        return baseEng + alter + octava;
-    }
-
-    // Caso "SO" → "SOL"
-    if (base === "SO") {
-        return "G" + alter + octava;
-    }
-
-    throw new Error("Nota desconocida: " + token);
+    // Añadimos el DO de referencia (do4 → C4)
+    const ref = normalizarNota("do4");
+    if (ref) set.add(ref);
+    return Array.from(set);
 }
 
-// Mostrar nota en castellano para mensajes al alumno
-function mostrarNotaEspanol(norm) {
-    // norm: "C4", "C#4", "D5"...
-    const base = norm[0];
-    const octava = norm[norm.length - 1];
-    const alter = norm.length === 3 ? norm[1] : "";
+// ─────────────────────────────────────────────
+// LÓGICA DEL EXAMEN
+// ─────────────────────────────────────────────
 
-    const latina = CONVERSION_INGLES_LATINO[base] || base;
-    const texto = latina + alter;
+let totalPreguntas = 15;
+let preguntaActual = 0;
+let puntuacion = 0;
+let respuestaUsuario = [];
+let preguntaNotas = [];
 
-    // Ocultamos octava 4; mostramos las demás
-    if (octava === "4") return texto;
-    return texto + octava;
+let durSlider, durLabel;
+let chkSostenido;
+let infoPregunta;
+let lblRespuesta;
+let lblPuntuacion;
+let popup, popupTexto, popupEscuchar, popupSiguiente;
+let btnEscuchar, btnBorrar, btnValidar;
+
+function iniciarUI() {
+    infoPregunta    = document.getElementById("info-pregunta");
+    durSlider       = document.getElementById("durSlider");
+    durLabel        = document.getElementById("durLabel");
+    chkSostenido    = document.getElementById("chkSostenido");
+    lblRespuesta    = document.getElementById("respuesta");
+    lblPuntuacion   = document.getElementById("puntuacion");
+    btnEscuchar     = document.getElementById("btn-escuchar");
+    btnBorrar       = document.getElementById("btn-borrar");
+    btnValidar      = document.getElementById("btn-validar");
+    popup           = document.getElementById("popup");
+    popupTexto      = document.getElementById("popup-texto");
+    popupEscuchar   = document.getElementById("popup-escuchar");
+    popupSiguiente  = document.getElementById("popup-siguiente");
+
+    // Velocidad inicial (en segundos)
+    durSlider.value = 0.50;
+    durLabel.textContent = `${parseFloat(durSlider.value).toFixed(2)} s`;
+
+    durSlider.addEventListener("input", () => {
+        durLabel.textContent = `${parseFloat(durSlider.value).toFixed(2)} s`;
+    });
+
+    // Construir botones de notas (grave → agudo)
+    const notasLista = document.getElementById("notas-lista");
+    const notasValidas = [
+        "si3", "do4", "re4", "mi4", "fa4",
+        "sol4", "la4", "si4", "do5", "re5"
+    ];
+
+    notasValidas.forEach(nota => {
+        const btn = document.createElement("button");
+        btn.className = "nota-btn";
+        btn.textContent = nota.toUpperCase();
+        btn.addEventListener("click", () => agregarRespuesta(nota));
+        notasLista.appendChild(btn);
+    });
+
+    btnEscuchar.addEventListener("click", reproducirPregunta);
+    btnBorrar.addEventListener("click", borrarRespuesta);
+    btnValidar.addEventListener("click", validar);
+
+    popupEscuchar.addEventListener("click", () => {
+        ocultarPopup();
+        reproducirPregunta();
+    });
+
+    popupSiguiente.addEventListener("click", () => {
+        ocultarPopup();
+        nuevaPregunta();
+    });
+
+    nuevaPregunta();
 }
 
-// -------------------------------------------------
-// AUDIO: CARGA Y REPRODUCCIÓN CON WebAudio API
-// -------------------------------------------------
-
-async function loadNote(name) {
-    const resp = await fetch(`sounds/${name}.wav`);
-    const arrayBuffer = await resp.arrayBuffer();
-    buffers[name] = await audioCtx.decodeAudioData(arrayBuffer);
+function actualizarRespuestaLabel() {
+    lblRespuesta.textContent = `Respuesta: [${respuestaUsuario.join(" ")}]`;
 }
 
-async function loadAllNotes() {
-    for (const n of NOTES_TO_LOAD) {
-        await loadNote(n);
+function borrarRespuesta() {
+    respuestaUsuario = [];
+    actualizarRespuestaLabel();
+}
+
+function nuevaPregunta() {
+    preguntaActual += 1;
+    if (preguntaActual > totalPreguntas) {
+        terminarExamen();
+        return;
     }
-    console.log("✅ Todas las notas cargadas");
-}
+    const linea = PREGUNTAS[Math.floor(Math.random() * PREGUNTAS.length)];
+    preguntaNotas = linea.trim().split(/\s+/);   // en notación latina: do, re, si3…
 
-function playNote(name, when) {
-    const buf = buffers[name];
-    if (!buf) return;
-    const src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(audioCtx.destination);
-    src.start(when);
+    respuestaUsuario = [];
+    actualizarRespuestaLabel();
+    infoPregunta.textContent = `Pregunta ${preguntaActual} de ${totalPreguntas}`;
 }
 
 function reproducirPregunta() {
-    if (examTerminado) return;
-    if (!preguntaActual || preguntaActual.length !== 4) return;
+    if (!notasCargadas) return;
 
-    // Aseguramos que el contexto está activo (por políticas de navegador)
-    if (audioCtx.state === "suspended") {
-        audioCtx.resume();
+    const dur = parseFloat(durSlider.value) || 0.5;
+
+    // 1) Nota de referencia DO4
+    const ref = normalizarNota("do4"); // → C4
+    if (ref) {
+        playNote(ref, 0.7, 0.9);
     }
 
-    const normPregunta = preguntaActual.map(normalizarNota); // ingles + octava
-    const t0 = audioCtx.currentTime + 0.2;
-
-    // Nota de referencia DO4
-    playNote("C4", t0);
-    const inicio = t0 + 1.0;
-
-    normPregunta.forEach((n, i) => {
-        playNote(n, inicio + i * notaDuration);
-    });
+    // 2) Espera
+    setTimeout(() => {
+        let retraso = 0;
+        for (const n of preguntaNotas) {
+            const norm = normalizarNota(n); // → C4, D4, etc.
+            if (norm) {
+                setTimeout(() => {
+                    playNote(norm, dur, 0.9);
+                }, retraso * 1000);
+                retraso += dur + 0.05;
+            }
+        }
+    }, 800);
 }
 
-// -------------------------------------------------
-// GUI Y LÓGICA DEL EXAMEN
-// -------------------------------------------------
-
-const infoEl = document.getElementById("info-pregunta");
-const puntuacionEl = document.getElementById("puntuacion");
-const respuestaEl = document.getElementById("respuesta");
-const btnEscuchar = document.getElementById("btn-escuchar");
-const btnBorrar = document.getElementById("btn-borrar");
-const btnValidar = document.getElementById("btn-validar");
-const chkSostenido = document.getElementById("chkSostenido");
-const notasListaEl = document.getElementById("notas-lista");
-
-const popupEl = document.getElementById("popup");
-const popupTextoEl = document.getElementById("popup-texto");
-const popupEscucharBtn = document.getElementById("popup-escuchar");
-const popupSiguienteBtn = document.getElementById("popup-siguiente");
-
-// Slider
-const durSlider = document.getElementById("durSlider");
-const durLabel = document.getElementById("durLabel");
-
-function actualizarEtiquetas() {
-    infoEl.textContent = `Pregunta ${preguntaNumero} de ${TOTAL_PREGUNTAS}`;
-    puntuacionEl.textContent = `Puntuación: ${puntuacion}`;
-}
-
-function actualizarRespuesta() {
-    const norm = respuestaUsuario.map(normalizarNota);
-    const texto = norm.map(mostrarNotaEspanol).join(", ");
-    respuestaEl.textContent = "Respuesta: [" + texto + "]";
-}
-
-// Crear botones de notas
-function crearBotonesNotas() {
-    NOTAS_VALIDAS.forEach(token => {
-        const btn = document.createElement("button");
-        btn.className = "nota-btn";
-        btn.textContent = token.toUpperCase();
-        btn.addEventListener("click", () => agregarRespuesta(token));
-        notasListaEl.appendChild(btn);
-    });
-}
-
-// Agregar respuesta del alumno
-function agregarRespuesta(tokenBase) {
-    if (examTerminado) return;
+function agregarRespuesta(notaBase) {
     if (respuestaUsuario.length >= 4) return;
 
-    let token = tokenBase;
-
-    // Si hay sostenido, insertamos '#' antes de la octava (si3 → si#3)
+    let nota = notaBase;
     if (chkSostenido.checked) {
-        const m = token.match(/(\d)$/);
-        if (m) {
-            const idx = token.length - 1;
-            token = token.slice(0, idx) + "#" + token.slice(idx);
-        } else {
-            token = token + "#4"; // caso raro, pero por si acaso
-        }
+        nota += "#";
         chkSostenido.checked = false;
     }
 
-    respuestaUsuario.push(token);
-    actualizarRespuesta();
+    respuestaUsuario.push(nota);
+    actualizarRespuestaLabel();
 }
 
-// Nueva pregunta
-function nuevaPregunta() {
-    if (preguntaNumero >= TOTAL_PREGUNTAS) {
-        examTerminado = true;
-        alert(`Has terminado el examen.\nPuntuación final: ${puntuacion} / ${TOTAL_PREGUNTAS * 250}`);
-        return;
-    }
-
-    preguntaNumero += 1;
-    // Elegimos una pregunta aleatoria
-    const texto = PREGUNTAS[Math.floor(Math.random() * PREGUNTAS.length)];
-    preguntaActual = texto.split(/\s+/);  // array de 4 tokens latinos
-    respuestaUsuario = [];
-
-    actualizarEtiquetas();
-    respuestaEl.textContent = "Respuesta: []";
+function mostrarPopup(mensaje) {
+    popupTexto.textContent = mensaje;
+    popup.classList.remove("oculto");
 }
 
-// Validación
+function ocultarPopup() {
+    popup.classList.add("oculto");
+}
+
+function quitarSufijo4SoloEnOctava4(lista) {
+    // Solo quitamos el "4" si la nota es de octava 4 (C4 → C, DO4 → DO)
+    return lista.map(n => {
+        let s = n.toString();
+        if (s.endsWith("4")) {
+            return s.slice(0, -1);
+        }
+        return s;
+    });
+}
+
 function validar() {
-    if (examTerminado) return;
-
     if (respuestaUsuario.length !== 4) {
         alert("Debes introducir las 4 notas.");
         return;
     }
 
-    const correctaNorm = preguntaActual.map(normalizarNota);
-    const usuarioNorm = respuestaUsuario.map(normalizarNota);
+    // Normalizamos pregunta y respuesta a notación inglesa tipo C4, D4…
+    const correctaNorm = preguntaNotas.map(n => normalizarNota(n));
+    const usuarioNorm  = respuestaUsuario.map(n => normalizarNota(n));
 
-    const ok = correctaNorm.every((n, i) => n === usuarioNorm[i]);
+    const esCorrecta = correctaNorm.length === usuarioNorm.length &&
+        correctaNorm.every((v, i) => v === usuarioNorm[i]);
 
-    if (ok) {
+    if (esCorrecta) {
         puntuacion += 250;
-        actualizarEtiquetas();
-        alert("✔ ¡Respuesta correcta!");
-        nuevaPregunta();
+        lblPuntuacion.textContent = `Puntuación: ${puntuacion}`;
+        mostrarPopup("✅ ¡Respuesta correcta!");
     } else {
-        mostrarPopupError(correctaNorm, usuarioNorm);
+        // Para mostrar al usuario en "latino", pero quitando solo el 4
+        const textoCorrecta = quitarSufijo4SoloEnOctava4(preguntaNotas).join(" ");
+        const textoUsuario  = quitarSufijo4SoloEnOctava4(respuestaUsuario).join(" ");
+
+        mostrarPopup(`❌ Incorrecto.\nCorrecta: ${textoCorrecta}\nTu respuesta: ${textoUsuario}`);
     }
 }
 
-// Popup error
-function mostrarPopupError(correctaNorm, usuarioNorm) {
-    const corr = correctaNorm.map(mostrarNotaEspanol).join(", ");
-    const usu = usuarioNorm.map(mostrarNotaEspanol).join(", ");
-
-    popupTextoEl.textContent =
-        "❌ Respuesta incorrecta.\n\n" +
-        "Correcta: " + corr + "\n" +
-        "Tu respuesta: " + usu;
-
-    popupEl.classList.remove("oculto");
+function terminarExamen() {
+    alert(`Has terminado.\nPuntuación final: ${puntuacion} / ${totalPreguntas * 250}`);
+    // Podrías recargar o dejar la pantalla final
 }
 
-function ocultarPopup() {
-    popupEl.classList.add("oculto");
-}
+// ─────────────────────────────────────────────
+// INICIALIZACIÓN
+// ─────────────────────────────────────────────
 
-// -------------------------------------------------
-// INICIALIZACIÓN DE SLIDER Y EVENTOS
-// -------------------------------------------------
+document.addEventListener("DOMContentLoaded", async () => {
+    // Primero montamos la UI
+    iniciarUI();
 
-function setupSlider() {
-    durSlider.min = MIN_DURATION;
-    durSlider.max = MAX_DURATION;
-    durSlider.step = 0.01;
-    durSlider.value = notaDuration;
-    durLabel.textContent = notaDuration.toFixed(2) + " s";
-
-    durSlider.addEventListener("input", () => {
-        notaDuration = parseFloat(durSlider.value);
-        durLabel.textContent = notaDuration.toFixed(2) + " s";
-    });
-}
-
-btnEscuchar.addEventListener("click", reproducirPregunta);
-btnBorrar.addEventListener("click", () => {
-    respuestaUsuario = [];
-    respuestaEl.textContent = "Respuesta: []";
-});
-btnValidar.addEventListener("click", validar);
-
-popupEscucharBtn.addEventListener("click", () => {
-    ocultarPopup();
-    reproducirPregunta();
-});
-popupSiguienteBtn.addEventListener("click", () => {
-    ocultarPopup();
-    nuevaPregunta();
-});
-
-// -------------------------------------------------
-// ARRANQUE
-// -------------------------------------------------
-
-window.addEventListener("load", async () => {
-    crearBotonesNotas();
-    setupSlider();
-    await loadAllNotes();
-    preguntaNumero = 0;
-    puntuacion = 0;
-    examTerminado = false;
-    nuevaPregunta();
+    // Luego cargamos todas las notas necesarias desde MP3
+    const listaNotas = obtenerNotasUnicas(PREGUNTAS);
+    try {
+        await loadAllNotes(listaNotas);
+        console.log("Notas cargadas:", listaNotas);
+    } catch (e) {
+        console.error("Error cargando notas:", e);
+    }
 });
