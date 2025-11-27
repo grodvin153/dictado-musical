@@ -1,131 +1,56 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<title>Dictado Musical</title>
-<style>
-    body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-    }
-    h1 {
-        font-size: 22px;
-        margin-bottom: 10px;
-    }
-    .panel {
-        margin-bottom: 15px;
-    }
-    .panel label {
-        font-size: 14px;
-    }
-    #durSlider {
-        width: 250px;
-    }
-    #info-pregunta,
-    #puntuacion,
-    #respuesta {
-        font-size: 16px;
-        margin: 5px 0;
-    }
-    .boton-principal {
-        padding: 8px 16px;
-        font-size: 16px;
-        margin: 4px 0;
-    }
-    .notas-lista {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        max-width: 120px;
-    }
-    .nota-btn {
-        padding: 6px;
-        font-size: 14px;
-        width: 100%;
-        cursor: pointer;
-    }
-    #chkSostenido {
-        transform: scale(1.2);
-        margin-right: 4px;
-    }
-    /* Popup */
-    #popup {
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,0.45);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    #popup.oculto {
-        display: none;
-    }
-    .popup-contenido {
-        background: #fff;
-        padding: 15px 20px;
-        border-radius: 6px;
-        max-width: 380px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        font-size: 14px;
-        white-space: pre-line;
-    }
-    .popup-botones {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        margin-top: 10px;
-    }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dictado Musical</title>
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+
+    <meta name="theme-color" content="#ffffff">
 </head>
 <body>
 
-<h1>🎵 Examen de Dictado Musical</h1>
+    <div class="container">
 
-<div id="info-pregunta"></div>
-<div id="puntuacion"></div>
+        <h1>🎵 Dictado Musical</h1>
 
-<div class="panel">
-    <button id="btn-escuchar" class="boton-principal">🎧 Escuchar</button>
-</div>
+        <div id="info-pregunta" class="pregunta-info">Pregunta 1 de 15</div>
 
-<div class="panel">
-    <label>Duración por nota: <span id="durLabel">0.50 s</span></label><br>
-    <input type="range" id="durSlider">
-</div>
+        <button id="btn-escuchar" class="boton-grande">🎧 Escuchar</button>
 
-<div class="panel">
-    <label>
-        <input type="checkbox" id="chkSostenido">
-        ♯ Sostenido en la siguiente nota
-    </label>
-</div>
+        <div class="bpm-container">
+            <label>Duración por nota: <span id="durLabel">0.50 s</span></label>
+            <input type="range" id="durSlider" min="0.20" max="0.80" step="0.01">
+        </div>
 
-<div class="panel">
-    <div>Pulsa las 4 notas que escuchas (de grave a agudo):</div>
-    <div class="notas-lista" id="notas-lista">
-        <!-- botones de notas se generan en script.js -->
+        <label class="sostenido">
+            <input type="checkbox" id="chkSostenido">
+            ♯ Sostenido
+        </label>
+
+        <h3>Pulsa las 4 notas (grave → agudo):</h3>
+
+        <div class="notas-list" id="notas-lista"></div>
+
+        <div id="respuesta" class="respuesta">Respuesta: []</div>
+
+        <button id="btn-borrar" class="boton-pequeno">🗑 Borrar</button>
+        <button id="btn-validar" class="boton-grande verde">✔ Validar</button>
+
+        <div id="puntuacion" class="puntuacion">Puntuación: 0</div>
     </div>
-</div>
 
-<div id="respuesta">Respuesta: []</div>
-
-<div class="panel">
-    <button id="btn-borrar" class="boton-principal">🗑 Borrar respuesta</button>
-    <button id="btn-validar" class="boton-principal">✔ Validar</button>
-</div>
-
-<!-- Popup de error -->
-<div id="popup" class="oculto">
-    <div class="popup-contenido">
-        <div id="popup-texto"></div>
-        <div class="popup-botones">
-            <button id="popup-escuchar">🎧 Escuchar de nuevo</button>
-            <button id="popup-siguiente">Siguiente pregunta</button>
+    <!-- Popup -->
+    <div id="popup" class="popup oculto">
+        <div class="popup-content">
+            <p id="popup-texto"></p>
+            <button id="popup-escuchar" class="boton-grande">🎧 Escuchar otra vez</button>
+            <button id="popup-siguiente" class="boton-pequeno verde">Siguiente</button>
         </div>
     </div>
-</div>
 
-<script src="script.js"></script>
-
+    <script src="script.js"></script>
 </body>
 </html>
